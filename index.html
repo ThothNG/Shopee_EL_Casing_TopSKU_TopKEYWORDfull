@@ -684,7 +684,7 @@ function renderSku(){
         <div class="sku-ado">Rank No.${i + 1}</div>
         <div class="sku-mom">日均销量环比：${skuMomHtml(d)}</div>
         <div class="sku-badges">
-          <span class="badge sku-region">${escapeHtml(d.grass_region)}</span>
+          <span class="badge sku-region">站点：${d.grass_region ? escapeHtml(d.grass_region) : "—"}</span>
           <span class="badge sku-sellertype">${escapeHtml(d.seller_type||"")}</span>
         </div>
       </div>
