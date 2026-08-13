@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shopee EL Top SKU & Keywords - internal sellers</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root{
+    --ink:#1c1f26;
+    --ink-soft:#5a616e;
+    --paper:#f6f4ef;
+    --panel:#ffffff;
+    --line:#e4e0d6;
+    --amber:#e0562b;
+    --amber-deep:#b8431f;
+    --amber-tint:#fbe7dc;
+    --teal:#1f6f66;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: "Inter", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:var(--sans);}
+  body{padding:28px 32px 60px;}
+  @media (max-width:720px){body{padding:16px;}}
+
+  .masthead-top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px;}
+  .masthead-top .eyebrow{font-family:var(--mono);font-size:11px;color:var(--amber-deep);letter-spacing:1.5px;text-transform:uppercase;}
+  .masthead-top .meta{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);}
+
+  .page-tabs{display:flex;gap:32px;border-bottom:3px solid var(--ink);margin-bottom:24px;flex-wrap:wrap;}
+  .page-tab{background:none;border:none;padding:6px 2px 16px;cursor:pointer;text-align:left;
+    font-family:var(--sans);color:#c7c2b5;position:relative;border-radius:0;transition:color .15s ease;}
+  .page-tab .tt-main{display:block;font-size:24px;font-weight:800;letter-spacing:0.2px;line-height:1.25;}
+  .page-tab .tt-sub{display:block;font-size:12px;font-weight:500;color:inherit;margin-top:2px;}
+  .page-tab:hover{color:var(--ink);}
+  .page-tab.active{color:var(--ink);}
+  .page-tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-3px;height:4px;background:var(--amber);border-radius:2px 2px 0 0;}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:18px;}
+  .panel h2{font-size:13px;margin:0 0 12px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-soft);font-weight:700;}
+
+  .src-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:11px;color:var(--ink-soft);font-family:var(--mono);}
+  .field input, .field select{
+    font-family:var(--mono);font-size:12.5px;padding:8px 10px;border:1px solid var(--line);
+    border-radius:6px;background:#fffdfa;color:var(--ink);min-width:200px;}
+  .field input:focus, .field select:focus{outline:2px solid var(--amber);outline-offset:1px;}
+  .hint{font-size:11.5px;color:var(--ink-soft);margin-top:8px;line-height:1.6;}
+  .hint code{background:var(--amber-tint);padding:1px 5px;border-radius:4px;}
+
+  button{
+    font-family:var(--sans);font-size:13px;font-weight:600;border:none;border-radius:7px;
+    padding:9px 16px;cursor:pointer;transition:transform .05s ease, box-shadow .15s ease;}
+  button:active{transform:translateY(1px);}
+  .btn-primary{background:var(--amber);color:#fff;}
+  .btn-primary:hover{background:var(--amber-deep);}
+  .btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  .btn-ghost:hover{border-color:var(--ink);}
+  .btn-primary:disabled{background:#d8d3c6;cursor:not-allowed;}
+
+  .filter-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(150px,1fr));gap:10px;}
+  .filter-grid select{width:100%;font-family:var(--sans);font-size:13px;padding:9px 10px;
+    border:1px solid var(--line);border-radius:7px;background:#fffdfa;color:var(--ink);}
+  .filter-grid select:focus{outline:2px solid var(--amber);outline-offset:1px;}
+
+  .sort-toggle{display:inline-flex;border:1px solid var(--ink);border-radius:8px;overflow:hidden;}
+  .sort-toggle button{border-radius:0;background:#fffdfa;color:var(--ink);padding:9px 18px;}
+  .sort-toggle button.active{background:var(--ink);color:#fff;}
+
+  .status{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin:10px 0 0;}
+  .status.err{color:#a3231f;}
+
+  .toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;}
+  .toolbar .count{font-family:var(--mono);font-size:12px;color:var(--ink-soft);}
+  .toolbar .actions{display:flex;gap:8px;align-items:center;}
+
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  thead th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--ink-soft);
+    background:#faf8f3;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  tbody td{padding:10px 12px;font-size:13px;border-bottom:1px solid #f0ece1;vertical-align:top;}
+  tbody tr:hover{background:#fdf7f2;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.kw{font-weight:600;}
+  td.zh{color:var(--teal);font-style:normal;}
+  td.zh.pending{color:#b7b0a0;font-style:italic;}
+  td.rank{font-family:var(--mono);}
+  .rank-num{font-family:var(--mono);font-size:13px;}
+  .empty-row td{text-align:center;padding:34px 12px;color:var(--ink-soft);font-family:var(--mono);font-size:12.5px;}
+  .badge{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:20px;background:var(--amber-tint);color:var(--amber-deep);}
+
+  .trend-cell{text-align:center;font-size:15px;}
+  .trend-up{color:#1f8a5c;font-weight:700;}
+  .trend-down{color:#c0342c;font-weight:700;}
+  .trend-flat{color:var(--ink-soft);}
+  .trend-na{color:#c9c3b4;}
+
+  .sku-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(170px,1fr));gap:14px;}
+  .sku-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;}
+  .sku-image-wrap{aspect-ratio:1/1;background:#efe9dc;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+  .sku-image-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
+  .sku-image-wrap.no-image{font-family:var(--mono);font-size:11px;color:var(--ink-soft);}
+  .sku-body{padding:10px 12px;display:flex;flex-direction:column;gap:5px;}
+  .sku-name{font-size:11.5px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .sku-price{font-family:var(--mono);font-weight:700;font-size:15px;color:var(--ink);}
+  .sku-ado{font-family:var(--mono);font-size:11.5px;color:var(--amber-deep);}
+  .sku-mom{font-family:var(--sans);font-size:11.5px;color:var(--ink-soft);display:flex;align-items:center;gap:4px;}
+  .sku-region{align-self:flex-start;margin-top:2px;}
+  .sku-empty{grid-column:1/-1;text-align:center;padding:34px 12px;color:var(--ink-soft);font-family:var(--mono);font-size:12.5px;}
+
+  ::-webkit-scrollbar{height:8px;width:8px;}
+  ::-webkit-scrollbar-thumb{background:#d8d3c6;border-radius:4px;}
+  details summary{cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:1px;}
+  details[open] summary{margin-bottom:12px;}
+</style>
+</head>
+<body>
+
+<div class="masthead-top">
+  <span class="eyebrow">Shopee EL</span>
+  <div class="meta" id="lastUpdated">尚未加载数据</div>
+</div>
+
+<div class="page-tabs" role="group" aria-label="选择数据看板">
+  <button id="pageTabKeyword" class="page-tab active" data-page="keyword">
+    <span class="tt-main">热搜词看板</span>
+    <span class="tt-sub">Keyword Trend Dashboard</span>
+  </button>
+  <button id="pageTabSku" class="page-tab" data-page="sku">
+    <span class="tt-main">热销品看板</span>
+    <span class="tt-sub">Local Top SKUs by ADO</span>
+  </button>
+</div>
+
+<div id="page-keyword">
+
+<p class="hint" style="margin:-4px 0 16px;">Weekly Update 每周三更新</p>
+
+<div class="panel">
+  <h2>排序类型 · Rank By</h2>
+  <div class="sort-toggle" role="group" aria-label="选择排序类型">
+    <button id="sortClick" class="active" data-tab="click">热搜榜（点击量）</button>
+    <button id="sortGrowth" data-tab="growth">趋势榜（点击量增长绝对值）</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>筛选 · Filters</h2>
+  <div class="filter-grid">
+    <select id="f_region"><option value="">全部站点</option></select>
+    <select id="f_l1"><option value="">全部品类 L1</option></select>
+    <select id="f_l2"><option value="">全部品类 L2</option></select>
+    <select id="f_l3"><option value="">全部品类 L3</option></select>
+    <select id="f_topn">
+      <option value="30">显示前 30</option>
+      <option value="50">显示前 50</option>
+    </select>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="count" id="rowCount">—</div>
+  <div class="actions">
+    <button class="btn-ghost" id="resetBtn">重置筛选</button>
+    <button class="btn-ghost" id="exportBtn">导出当前结果 CSV</button>
+  </div>
+</div>
+
+<div style="overflow-x:auto;">
+<table>
+  <thead>
+    <tr>
+      <th>Seller Type</th>
+      <th>站点 Region</th>
+      <th>品类 L1</th>
+      <th>品类 L2</th>
+      <th>品类 L3</th>
+      <th>Keyword</th>
+      <th>中文翻译</th>
+      <th style="min-width:110px;">Rank</th>
+      <th style="min-width:80px;text-align:center;">周趋势</th>
+    </tr>
+  </thead>
+  <tbody id="tbody">
+    <tr class="empty-row"><td colspan="9">点击「加载数据」以读取 Google Sheet</td></tr>
+  </tbody>
+</table>
+</div>
+
+</div><!-- /page-keyword -->
+
+<div id="page-sku" style="display:none">
+
+  <div class="panel">
+    <h2>说明 · About</h2>
+    <p class="hint" style="margin-top:0;">
+      数据范围：三级品类 <strong>Cases, Covers &amp; Skins</strong> · 本土店热销品 · 按订单量（MTD ADO）排序<br>
+      更新时间：<span id="skuUpdateTime">—</span>
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>筛选 · Filters</h2>
+    <div class="filter-grid" style="grid-template-columns:repeat(auto-fit, minmax(150px,220px));">
+      <select id="f_sku_region"><option value="">全部站点</option></select>
+      <select id="f_sku_topn">
+        <option value="30">显示前 30</option>
+        <option value="50">显示前 50</option>
+        <option value="0">全部显示</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="sku-grid" id="skuGrid">
+    <div class="sku-empty">正在加载数据…</div>
+  </div>
+
+</div><!-- /page-sku -->
+
+<p class="status" id="status"></p>
+
+<script>
+/* ---------------- config / column mapping ---------------- */
+const FIELD_ALIASES = {
+  seller_type:  ["seller_type","sellertype","卖家类型"],
+  grass_region: ["grass_region","region","站点","site"],
+  l1:           ["cb_level1_global_be_category","level1_global_be_category","level1","l1","品类l1"],
+  l2:           ["level2_global_be_category","level2","l2","品类l2"],
+  l3:           ["level3_global_be_category","level3","l3","品类l3"],
+  keyword:      ["keyword","关键词","热搜词"],
+  rank:         ["keyword_rank","rank","keyword_rank(sum)","热度","排名"],
+  growth:       ["daily_item_click_growth","daily_item_click_growth(sum)","itemclickgrowth","周趋势"]
+};
+const REQUIRED_FIELDS = ["seller_type","grass_region","l1","l2","l3","keyword","rank"]; // growth is optional
+
+const SKU_FIELD_ALIASES = {
+  grass_region:  ["grass_region","region","站点","site"],
+  product_image: ["product_image","image","sku_image","productimage","图片"],
+  price:         ["item_current_price_usd","current_price_usd","item_current_price","asp","price_usd"],
+  ado:           ["mtd_ado","ado"],
+  ado_mom:       ["ado_mom","mtd_ado_mom","ado mom","ado环比","adomom"],
+  update_time:   ["update_time","updated_at","更新时间","last_update_time"],
+  name:          ["item_name","product_name","sku_name","title"]
+};
+const SKU_REQUIRED_FIELDS = ["grass_region","product_image","price","ado"]; // ado_mom, update_time & name optional
+
+function norm(s){ return String(s||"").trim().toLowerCase().replace(/[\s_\-\(\)]/g,""); }
+
+function mapHeadersGeneric(headerRow, aliasMap){
+  const map = {};
+  const normalizedHeaders = headerRow.map(norm);
+  for(const key in aliasMap){
+    let found = -1;
+    for(const alias of aliasMap[key]){
+      const na = norm(alias);
+      const idx = normalizedHeaders.findIndex(h => h === na || h.includes(na));
+      if(idx !== -1){ found = idx; break; }
+    }
+    map[key] = found;
+  }
+  return map;
+}
+function mapHeaders(headerRow){ return mapHeadersGeneric(headerRow, FIELD_ALIASES); }
+
+/* ---------------- fixed data source ---------------- */
+const DATA_SOURCE = {
+  sheetId: "19HhzGr3FTu_2zZCB3KX-LCpX_mGjpTR5JxMTl0v8Ym8",
+  clickGid: "0",
+  growthGid: "2137849361",
+  skuGid: "25668584"
+};
+
+/* ---------------- state ---------------- */
+const state = {
+  datasets: { click: null, growth: null, sku: null }, // each: array of grouped rows
+  activeTab: "click",
+  activePage: "keyword",
+  skuUpdateTime: "",
+  translationCache: new Map()
+};
+
+const els = {
+  status: document.getElementById("status"),
+  lastUpdated: document.getElementById("lastUpdated"),
+  pageTabKeyword: document.getElementById("pageTabKeyword"),
+  pageTabSku: document.getElementById("pageTabSku"),
+  pageKeyword: document.getElementById("page-keyword"),
+  pageSku: document.getElementById("page-sku"),
+  tbody: document.getElementById("tbody"),
+  rowCount: document.getElementById("rowCount"),
+  sortClick: document.getElementById("sortClick"),
+  sortGrowth: document.getElementById("sortGrowth"),
+  f_region: document.getElementById("f_region"),
+  f_l1: document.getElementById("f_l1"),
+  f_l2: document.getElementById("f_l2"),
+  f_l3: document.getElementById("f_l3"),
+  f_topn: document.getElementById("f_topn"),
+  resetBtn: document.getElementById("resetBtn"),
+  exportBtn: document.getElementById("exportBtn"),
+  skuUpdateTimeEl: document.getElementById("skuUpdateTime"),
+  f_sku_region: document.getElementById("f_sku_region"),
+  f_sku_topn: document.getElementById("f_sku_topn"),
+  skuGrid: document.getElementById("skuGrid")
+};
+
+function setStatus(msg, isErr){
+  els.status.textContent = msg;
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+/* ---------------- JSONP loader (bypasses CORS — gviz endpoint sends no CORS headers) ---------------- */
+function jsonpFetch(url){
+  return new Promise((resolve, reject) => {
+    const cbName = "gvizCB_" + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if(settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error("请求超时，请检查网络连接"));
+    }, 15000);
+
+    function cleanup(){
+      clearTimeout(timeoutId);
+      delete window[cbName];
+      script.remove();
+    }
+
+    window[cbName] = (json) => {
+      if(settled) return;
+      settled = true;
+      cleanup();
+      resolve(json);
+    };
+    script.onerror = () => {
+      if(settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error("加载失败，请确认该 sheet 已设为「知道链接的任何人可查看」"));
+    };
+    script.src = url + (url.includes("?") ? "&" : "?") + "tqx=out:json;responseHandler:" + cbName;
+    document.head.appendChild(script);
+  });
+}
+
+/* ---------------- fetch + parse a tab into grouped rows ---------------- */
+async function fetchTab(sheetId, gid){
+  const baseUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${encodeURIComponent(gid)}`;
+  const json = await jsonpFetch(baseUrl);
+  if(!json || !json.table || !Array.isArray(json.table.cols)){
+    throw new Error("返回数据格式异常，请确认 sheet ID / gid 正确");
+  }
+  const header = json.table.cols.map(c => (c.label || c.id || "").toString());
+  const dataRows = (json.table.rows || []).map(r =>
+    (r.c || []).map(cell => {
+      if(!cell) return "";
+      if(cell.v !== undefined && cell.v !== null) return cell.v;
+      if(cell.f !== undefined && cell.f !== null) return cell.f;
+      return "";
+    })
+  );
+  const rows = [header, ...dataRows];
+  const colMap = mapHeaders(header);
+  const missing = REQUIRED_FIELDS.filter(k => colMap[k] === -1);
+  if(missing.length){
+    throw new Error("未能识别以下列，请检查表头命名：" + missing.join(", "));
+  }
+
+  // group + sum rank
+  const groups = new Map();
+  for(let i=1;i<rows.length;i++){
+    const r = rows[i];
+    if(!r || r.every(c => c === "" || c === null || c === undefined)) continue;
+    const seller_type = String(r[colMap.seller_type]??"").trim();
+    const grass_region = String(r[colMap.grass_region]??"").trim();
+    const l1 = String(r[colMap.l1]??"").trim();
+    const l2 = String(r[colMap.l2]??"").trim();
+    const l3 = String(r[colMap.l3]??"").trim();
+    const keyword = String(r[colMap.keyword]??"").trim();
+    const rankRaw = String(r[colMap.rank]??"0").replace(/,/g,"").trim();
+    const rankVal = parseFloat(rankRaw);
+    let growthVal = null;
+    if(colMap.growth !== -1){
+      const growthRaw = String(r[colMap.growth]??"0").replace(/,/g,"").trim();
+      const gv = parseFloat(growthRaw);
+      growthVal = isNaN(gv) ? null : gv;
+    }
+    if(!keyword) continue;
+    const key = [seller_type,grass_region,l1,l2,l3,keyword].join("␟");
+    if(!groups.has(key)){
+      groups.set(key, { seller_type, grass_region, l1, l2, l3, keyword, rank: 0, growthSum: 0, hasGrowth: colMap.growth !== -1 });
+    }
+    groups.get(key).rank = isNaN(rankVal) ? groups.get(key).rank : rankVal;
+    if(growthVal !== null) groups.get(key).growthSum += growthVal;
+  }
+  const list = Array.from(groups.values());
+  list.sort((a,b) => a.rank - b.rank);
+  return list;
+}
+
+/* ---------------- date formatting helper (handles gviz "Date(y,m,d,h,mi,s)" cells) ---------------- */
+function formatUpdateTime(raw){
+  if(!raw) return "";
+  const m = String(raw).match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)$/);
+  let d;
+  if(m){
+    d = new Date(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]||0), Number(m[5]||0), Number(m[6]||0));
+  } else {
+    d = new Date(raw);
+  }
+  if(isNaN(d.getTime())) return String(raw);
+  const pad = n => String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}时`;
+}
+
+/* ---------------- fetch top-sku tab ---------------- */
+async function fetchSkuTab(sheetId, gid){
+  const baseUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${encodeURIComponent(gid)}`;
+  const json = await jsonpFetch(baseUrl);
+  if(!json || !json.table || !Array.isArray(json.table.cols)){
+    throw new Error("返回数据格式异常，请确认 sheet ID / gid 正确");
+  }
+  const header = json.table.cols.map(c => (c.label || c.id || "").toString());
+  const dataRows = (json.table.rows || []).map(r =>
+    (r.c || []).map(cell => {
+      if(!cell) return "";
+      if(cell.v !== undefined && cell.v !== null) return cell.v;
+      if(cell.f !== undefined && cell.f !== null) return cell.f;
+      return "";
+    })
+  );
+  const colMap = mapHeadersGeneric(header, SKU_FIELD_ALIASES);
+  const missing = SKU_REQUIRED_FIELDS.filter(k => colMap[k] === -1);
+  if(missing.length){
+    throw new Error("未能识别以下列，请检查表头命名：" + missing.join(", "));
+  }
+
+  const dedup = new Map(); // key -> best entry
+  let updateTime = "";
+  for(const r of dataRows){
+    if(!r || r.every(c => c === "" || c === null || c === undefined)) continue;
+    const grass_region = String(r[colMap.grass_region]??"").trim();
+    const image = String(r[colMap.product_image]??"").trim();
+    const priceRaw = String(r[colMap.price]??"").replace(/,/g,"").trim();
+    const price = parseFloat(priceRaw);
+    const adoRaw = String(r[colMap.ado]??"0").replace(/,/g,"").trim();
+    const ado = parseFloat(adoRaw);
+    let adoMom = null;
+    if(colMap.ado_mom !== -1){
+      const momRaw = String(r[colMap.ado_mom]??"").replace(/[,%]/g,"").trim();
+      const mv = parseFloat(momRaw);
+      adoMom = isNaN(mv) ? null : mv;
+    }
+    const name = colMap.name !== -1 ? String(r[colMap.name]??"").trim() : "";
+    if(colMap.update_time !== -1 && !updateTime){
+      const ut = String(r[colMap.update_time]??"").trim();
+      if(ut) updateTime = ut;
+    }
+    if(!grass_region && !image) continue;
+    const adoVal = isNaN(ado) ? 0 : ado;
+    // dedup key: same site + same image (falls back to name) is treated as the same SKU
+    const dedupKey = [grass_region, image || name].join("␟");
+    const existing = dedup.get(dedupKey);
+    if(!existing || adoVal > existing.ado){
+      dedup.set(dedupKey, { grass_region, image, price: isNaN(price) ? null : price, ado: adoVal, adoMom, hasAdoMom: colMap.ado_mom !== -1, name });
+    }
+  }
+  const list = Array.from(dedup.values());
+  list.sort((a,b) => b.ado - a.ado);
+  return { list, updateTime };
+}
+
+/* ---------------- auto load on page open ---------------- */
+async function loadAll(){
+  setStatus("正在加载数据 ...");
+  const [clickRes, growthRes, skuRes] = await Promise.allSettled([
+    fetchTab(DATA_SOURCE.sheetId, DATA_SOURCE.clickGid),
+    fetchTab(DATA_SOURCE.sheetId, DATA_SOURCE.growthGid),
+    fetchSkuTab(DATA_SOURCE.sheetId, DATA_SOURCE.skuGid)
+  ]);
+
+  const errMsgs = [];
+
+  if(clickRes.status === "fulfilled"){
+    state.datasets.click = clickRes.value;
+  } else {
+    errMsgs.push("click 加载失败：" + clickRes.reason.message);
+  }
+
+  if(growthRes.status === "fulfilled"){
+    state.datasets.growth = growthRes.value;
+  } else {
+    state.datasets.growth = null;
+    errMsgs.push("growth 加载失败：" + growthRes.reason.message);
+  }
+
+  if(skuRes.status === "fulfilled"){
+    state.datasets.sku = skuRes.value.list;
+    state.skuUpdateTime = skuRes.value.updateTime;
+  } else {
+    state.datasets.sku = null;
+    errMsgs.push("sku 加载失败：" + skuRes.reason.message);
+  }
+
+  setStatus(errMsgs.join(" ・ "), errMsgs.length > 0);
+  els.lastUpdated.textContent = "最近加载：" + new Date().toLocaleString("zh-CN");
+
+  populateFilters();
+  render();
+
+  populateSkuFilters();
+  renderSku();
+}
+
+window.addEventListener("DOMContentLoaded", loadAll);
+
+/* ---------------- page-level tab switch ---------------- */
+function setPageTab(page){
+  state.activePage = page;
+  els.pageTabKeyword.classList.toggle("active", page === "keyword");
+  els.pageTabSku.classList.toggle("active", page === "sku");
+  els.pageKeyword.style.display = page === "keyword" ? "" : "none";
+  els.pageSku.style.display = page === "sku" ? "" : "none";
+}
+els.pageTabKeyword.addEventListener("click", () => setPageTab("keyword"));
+els.pageTabSku.addEventListener("click", () => setPageTab("sku"));
+
+/* ---------------- sort toggle ---------------- */
+function setActiveTab(tab){
+  if(tab === "growth" && !state.datasets.growth){
+    setStatus("growth 数据尚未加载成功，请刷新页面重试", true);
+    return;
+  }
+  state.activeTab = tab;
+  els.sortClick.classList.toggle("active", tab === "click");
+  els.sortGrowth.classList.toggle("active", tab === "growth");
+  populateFilters();
+  render();
+}
+els.sortClick.addEventListener("click", () => setActiveTab("click"));
+els.sortGrowth.addEventListener("click", () => setActiveTab("growth"));
+
+/* ---------------- filters ---------------- */
+function uniqueSorted(arr){ return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=>a.localeCompare(b,"zh")); }
+
+function fillSelect(sel, values, currentVal){
+  const keep = currentVal && values.includes(currentVal) ? currentVal : "";
+  sel.innerHTML = `<option value="">${sel.dataset.allLabel}</option>` +
+    values.map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join("");
+  sel.value = keep;
+}
+els.f_region.dataset.allLabel = "全部站点";
+els.f_l1.dataset.allLabel = "全部品类 L1";
+els.f_l2.dataset.allLabel = "全部品类 L2";
+els.f_l3.dataset.allLabel = "全部品类 L3";
+
+function currentData(){
+  return state.datasets[state.activeTab] || [];
+}
+
+function populateFilters(){
+  const data = currentData();
+  fillSelect(els.f_region, uniqueSorted(data.map(d=>d.grass_region)), els.f_region.value);
+  refreshCascadingCategoryFilters();
+}
+
+function filteredBase(){
+  // apply region only (used to compute cascading category options)
+  return currentData().filter(d =>
+    (!els.f_region.value || d.grass_region === els.f_region.value)
+  );
+}
+
+function refreshCascadingCategoryFilters(){
+  const base = filteredBase();
+  fillSelect(els.f_l1, uniqueSorted(base.map(d=>d.l1)), els.f_l1.value);
+  const afterL1 = base.filter(d => !els.f_l1.value || d.l1 === els.f_l1.value);
+  fillSelect(els.f_l2, uniqueSorted(afterL1.map(d=>d.l2)), els.f_l2.value);
+  const afterL2 = afterL1.filter(d => !els.f_l2.value || d.l2 === els.f_l2.value);
+  fillSelect(els.f_l3, uniqueSorted(afterL2.map(d=>d.l3)), els.f_l3.value);
+}
+
+[els.f_region].forEach(sel => sel.addEventListener("change", () => {
+  refreshCascadingCategoryFilters();
+  render();
+}));
+[els.f_l1, els.f_l2].forEach(sel => sel.addEventListener("change", () => {
+  refreshCascadingCategoryFilters();
+  render();
+}));
+[els.f_l3, els.f_topn].forEach(sel => sel.addEventListener("change", render));
+
+els.resetBtn.addEventListener("click", () => {
+  [els.f_region, els.f_l1, els.f_l2, els.f_l3].forEach(s => s.value = "");
+  els.f_topn.value = "30";
+  refreshCascadingCategoryFilters();
+  render();
+});
+
+function applyFilters(){
+  return currentData().filter(d =>
+    (!els.f_region.value || d.grass_region === els.f_region.value) &&
+    (!els.f_l1.value || d.l1 === els.f_l1.value) &&
+    (!els.f_l2.value || d.l2 === els.f_l2.value) &&
+    (!els.f_l3.value || d.l3 === els.f_l3.value)
+  );
+}
+
+/* ---------------- sku filters + render ---------------- */
+els.f_sku_region.dataset.allLabel = "全部站点";
+
+function populateSkuFilters(){
+  const data = state.datasets.sku || [];
+  fillSelect(els.f_sku_region, uniqueSorted(data.map(d=>d.grass_region)), els.f_sku_region.value);
+}
+[els.f_sku_region, els.f_sku_topn].forEach(sel => sel.addEventListener("change", renderSku));
+
+function skuMomHtml(d){
+  if(!d.hasAdoMom || d.adoMom === null){
+    return `<span class="trend-na">—</span>`;
+  }
+  if(d.adoMom > 0) return `<span class="trend-up">▲</span>`;
+  if(d.adoMom < 0) return `<span class="trend-down">▼</span>`;
+  return `<span class="trend-flat">–</span>`;
+}
+
+function renderSku(){
+  const data = state.datasets.sku || [];
+  const filtered = data.filter(d => !els.f_sku_region.value || d.grass_region === els.f_sku_region.value);
+  const topNRaw = parseInt(els.f_sku_topn.value, 10);
+  const topN = isNaN(topNRaw) ? 30 : topNRaw;
+  const shown = topN > 0 ? filtered.slice(0, topN) : filtered;
+
+  els.skuUpdateTimeEl.textContent = formatUpdateTime(state.skuUpdateTime) || "—";
+
+  if(!shown.length){
+    els.skuGrid.innerHTML = `<div class="sku-empty">没有匹配当前筛选条件的数据</div>`;
+    return;
+  }
+
+  els.skuGrid.innerHTML = shown.map((d, i) => {
+    const priceText = (d.price !== null && !isNaN(d.price)) ? `$${d.price.toFixed(2)}` : "—";
+    const imgHtml = d.image
+      ? `<img src="${escapeAttr(d.image)}" alt="${escapeAttr(d.name||'')}" loading="lazy" onerror="this.closest('.sku-image-wrap').classList.add('no-image'); this.replaceWith(document.createTextNode('无图片'));">`
+      : `无图片`;
+    return `<div class="sku-card">
+      <div class="sku-image-wrap">${imgHtml}</div>
+      <div class="sku-body">
+        ${d.name ? `<div class="sku-name" title="${escapeAttr(d.name)}">${escapeHtml(d.name)}</div>` : ""}
+        <div class="sku-price">${priceText}</div>
+        <div class="sku-ado">Rank No.${i + 1}</div>
+        <div class="sku-mom">日均销量环比：${skuMomHtml(d)}</div>
+        <span class="badge sku-region">${escapeHtml(d.grass_region)}</span>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------------- render ---------------- */
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function escapeAttr(s){ return escapeHtml(s); }
+
+function trendCellHtml(d){
+  if(state.activeTab !== "click" || !d.hasGrowth){
+    return `<span class="trend-na">—</span>`;
+  }
+  if(d.growthSum > 0) return `<span class="trend-up">▲</span>`;
+  if(d.growthSum < 0) return `<span class="trend-down">▼</span>`;
+  return `<span class="trend-flat">–</span>`;
+}
+
+function render(){
+  const rows = applyFilters();
+  const topN = parseInt(els.f_topn.value, 10) || 30;
+  const shown = rows.slice(0, topN);
+
+  els.rowCount.textContent = `${state.activeTab === "click" ? "热搜榜" : "趋势榜"} · 共 ${rows.length} 个关键词，显示前 ${shown.length} 个`;
+
+  if(!shown.length){
+    els.tbody.innerHTML = `<tr class="empty-row"><td colspan="9">没有匹配当前筛选条件的数据</td></tr>`;
+    return;
+  }
+
+  els.tbody.innerHTML = shown.map((d,i) => {
+    const cacheKey = d.keyword;
+    const cached = state.translationCache.get(cacheKey);
+    const zhCell = cached
+      ? `<span>${escapeHtml(cached)}</span>`
+      : `<span class="zh-pending" data-kw="${escapeAttr(cacheKey)}">翻译中…</span>`;
+    return `<tr>
+      <td>${escapeHtml(d.seller_type)}</td>
+      <td><span class="badge">${escapeHtml(d.grass_region)}</span></td>
+      <td>${escapeHtml(d.l1)}</td>
+      <td>${escapeHtml(d.l2)}</td>
+      <td>${escapeHtml(d.l3)}</td>
+      <td class="kw">${escapeHtml(d.keyword)}</td>
+      <td class="zh${cached?"":" pending"}" id="zh-${i}">${zhCell}</td>
+      <td class="rank"><span class="rank-num">${d.rank.toLocaleString()}</span></td>
+      <td class="trend-cell">${trendCellHtml(d)}</td>
+    </tr>`;
+  }).join("");
+
+  translateVisible(shown);
+}
+
+/* ---------------- lazy translation via MyMemory (free, no key) ---------------- */
+let translateQueue = Promise.resolve();
+function translateVisible(rows){
+  const toTranslate = rows.filter(d => !state.translationCache.has(d.keyword));
+  const uniqueKeywords = Array.from(new Set(toTranslate.map(d => d.keyword)));
+  uniqueKeywords.forEach(kw => {
+    translateQueue = translateQueue.then(() => translateOne(kw)).then(zh => {
+      state.translationCache.set(kw, zh);
+      document.querySelectorAll(`.zh-pending[data-kw]`).forEach(span => {
+        if(span.dataset.kw === kw){
+          span.textContent = zh;
+          span.parentElement.classList.remove("pending");
+        }
+      });
+    }).catch(() => {
+      state.translationCache.set(kw, kw); // fallback: show original
+      document.querySelectorAll(`.zh-pending[data-kw]`).forEach(span => {
+        if(span.dataset.kw === kw){
+          span.textContent = kw;
+          span.parentElement.classList.remove("pending");
+        }
+      });
+    }).then(() => new Promise(r => setTimeout(r, 120))); // gentle throttle
+  });
+}
+
+async function translateOne(text){
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|zh-CN`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("translate http error");
+  const json = await res.json();
+  const zh = json && json.responseData && json.responseData.translatedText;
+  if(!zh) throw new Error("no translation");
+  return zh;
+}
+
+/* ---------------- export ---------------- */
+els.exportBtn.addEventListener("click", () => {
+  const rows = applyFilters();
+  const topN = parseInt(els.f_topn.value, 10) || 30;
+  const shown = rows.slice(0, topN);
+  if(!shown.length){ setStatus("没有可导出的数据", true); return; }
+  const header = ["seller_type","grass_region","cb_level1_global_be_category","level2_global_be_category","level3_global_be_category","keyword","keyword_zh","keyword_rank","周趋势"];
+  const lines = [header.join(",")];
+  shown.forEach(d => {
+    const zh = state.translationCache.get(d.keyword) || "";
+    const trendText = state.activeTab !== "click" || !d.hasGrowth ? "" : (d.growthSum > 0 ? "上升" : d.growthSum < 0 ? "下降" : "持平");
+    const vals = [d.seller_type,d.grass_region,d.l1,d.l2,d.l3,d.keyword,zh,d.rank,trendText]
+      .map(v => `"${String(v).replace(/"/g,'""')}"`);
+    lines.push(vals.join(","));
+  });
+  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `热搜词_${state.activeTab}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+});
+</script>
+</body>
+</html>
