@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shopee EL Top SKU & Keywords - internal sellers - full version</title>
+<title>Shopee EL Top SKU & Keywords - internal sellers</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
   :root{
@@ -107,6 +107,8 @@
   .sku-ado{font-family:var(--mono);font-size:11.5px;color:var(--amber-deep);}
   .sku-mom{font-family:var(--sans);font-size:11.5px;color:var(--ink-soft);display:flex;align-items:center;gap:4px;}
   .sku-region{align-self:flex-start;margin-top:2px;}
+  .sku-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px;}
+  .sku-sellertype{background:#e3ece8;color:var(--teal);}
   .sku-empty{grid-column:1/-1;text-align:center;padding:34px 12px;color:var(--ink-soft);font-family:var(--mono);font-size:12.5px;}
 
   ::-webkit-scrollbar{height:8px;width:8px;}
@@ -195,7 +197,7 @@
   <div class="panel">
     <h2>说明 · About</h2>
     <p class="hint" style="margin-top:0;">
-      数据范围：三级品类 <strong>Cases, Covers &amp; Skins</strong> · 本土店热销品 · 按订单量（MTD ADO）排序<br>
+      数据范围：三级品类 <strong>Cases, Covers &amp; Skins</strong> · 本土店+跨境店热销品 · 按订单量（MTD ADO）排序<br>
       更新时间：<span id="skuUpdateTime">—</span>
     </p>
   </div>
@@ -203,6 +205,11 @@
   <div class="panel">
     <h2>筛选 · Filters</h2>
     <div class="filter-grid" style="grid-template-columns:repeat(auto-fit, minmax(150px,220px));">
+      <select id="f_sku_sellertype">
+        <option value="">全部卖家类型</option>
+        <option value="CNCB跨境">CNCB跨境</option>
+        <option value="CNLS本土">CNLS本土</option>
+      </select>
       <select id="f_sku_region"><option value="">全部站点</option></select>
       <select id="f_sku_topn">
         <option value="30">显示前 30</option>
@@ -268,7 +275,8 @@ const DATA_SOURCE = {
   sheetId: "19HhzGr3FTu_2zZCB3KX-LCpX_mGjpTR5JxMTl0v8Ym8",
   clickGid: "0",
   growthGid: "2137849361",
-  skuGid: "25668584"
+  skuGid: "25668584",
+  skuCncbGid: "260523969"
 };
 
 /* ---------------- state ---------------- */
@@ -299,6 +307,7 @@ const els = {
   resetBtn: document.getElementById("resetBtn"),
   exportBtn: document.getElementById("exportBtn"),
   skuUpdateTimeEl: document.getElementById("skuUpdateTime"),
+  f_sku_sellertype: document.getElementById("f_sku_sellertype"),
   f_sku_region: document.getElementById("f_sku_region"),
   f_sku_topn: document.getElementById("f_sku_topn"),
   skuGrid: document.getElementById("skuGrid")
@@ -416,7 +425,7 @@ function formatUpdateTime(raw){
 }
 
 /* ---------------- fetch top-sku tab ---------------- */
-async function fetchSkuTab(sheetId, gid){
+async function fetchSkuTab(sheetId, gid, sellerTypeLabel){
   const baseUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${encodeURIComponent(gid)}`;
   const json = await jsonpFetch(baseUrl);
   if(!json || !json.table || !Array.isArray(json.table.cols)){
@@ -464,7 +473,7 @@ async function fetchSkuTab(sheetId, gid){
     const dedupKey = [grass_region, image || name].join("␟");
     const existing = dedup.get(dedupKey);
     if(!existing || adoVal > existing.ado){
-      dedup.set(dedupKey, { grass_region, image, price: isNaN(price) ? null : price, ado: adoVal, adoMom, hasAdoMom: colMap.ado_mom !== -1, name });
+      dedup.set(dedupKey, { grass_region, image, price: isNaN(price) ? null : price, ado: adoVal, adoMom, hasAdoMom: colMap.ado_mom !== -1, name, seller_type: sellerTypeLabel });
     }
   }
   const list = Array.from(dedup.values());
@@ -475,10 +484,11 @@ async function fetchSkuTab(sheetId, gid){
 /* ---------------- auto load on page open ---------------- */
 async function loadAll(){
   setStatus("正在加载数据 ...");
-  const [clickRes, growthRes, skuRes] = await Promise.allSettled([
+  const [clickRes, growthRes, skuLocalRes, skuCncbRes] = await Promise.allSettled([
     fetchTab(DATA_SOURCE.sheetId, DATA_SOURCE.clickGid),
     fetchTab(DATA_SOURCE.sheetId, DATA_SOURCE.growthGid),
-    fetchSkuTab(DATA_SOURCE.sheetId, DATA_SOURCE.skuGid)
+    fetchSkuTab(DATA_SOURCE.sheetId, DATA_SOURCE.skuGid, "CNLS本土"),
+    fetchSkuTab(DATA_SOURCE.sheetId, DATA_SOURCE.skuCncbGid, "CNCB跨境")
   ]);
 
   const errMsgs = [];
@@ -496,13 +506,26 @@ async function loadAll(){
     errMsgs.push("growth 加载失败：" + growthRes.reason.message);
   }
 
-  if(skuRes.status === "fulfilled"){
-    state.datasets.sku = skuRes.value.list;
-    state.skuUpdateTime = skuRes.value.updateTime;
+  const skuList = [];
+  let skuUpdateTime = "";
+
+  if(skuLocalRes.status === "fulfilled"){
+    skuList.push(...skuLocalRes.value.list);
+    if(skuLocalRes.value.updateTime) skuUpdateTime = skuLocalRes.value.updateTime;
   } else {
-    state.datasets.sku = null;
-    errMsgs.push("sku 加载失败：" + skuRes.reason.message);
+    errMsgs.push("top sku（本土）加载失败：" + skuLocalRes.reason.message);
   }
+
+  if(skuCncbRes.status === "fulfilled"){
+    skuList.push(...skuCncbRes.value.list);
+    if(!skuUpdateTime && skuCncbRes.value.updateTime) skuUpdateTime = skuCncbRes.value.updateTime;
+  } else {
+    errMsgs.push("top sku CNCB（跨境）加载失败：" + skuCncbRes.reason.message);
+  }
+
+  skuList.sort((a,b) => b.ado - a.ado);
+  state.datasets.sku = (skuLocalRes.status === "fulfilled" || skuCncbRes.status === "fulfilled") ? skuList : null;
+  state.skuUpdateTime = skuUpdateTime;
 
   setStatus(errMsgs.join(" ・ "), errMsgs.length > 0);
   els.lastUpdated.textContent = "最近加载：" + new Date().toLocaleString("zh-CN");
@@ -611,10 +634,19 @@ function applyFilters(){
 /* ---------------- sku filters + render ---------------- */
 els.f_sku_region.dataset.allLabel = "全部站点";
 
-function populateSkuFilters(){
+function skuFilteredBySellerType(){
   const data = state.datasets.sku || [];
-  fillSelect(els.f_sku_region, uniqueSorted(data.map(d=>d.grass_region)), els.f_sku_region.value);
+  return data.filter(d => !els.f_sku_sellertype.value || d.seller_type === els.f_sku_sellertype.value);
 }
+
+function populateSkuFilters(){
+  const base = skuFilteredBySellerType();
+  fillSelect(els.f_sku_region, uniqueSorted(base.map(d=>d.grass_region)), els.f_sku_region.value);
+}
+els.f_sku_sellertype.addEventListener("change", () => {
+  populateSkuFilters();
+  renderSku();
+});
 [els.f_sku_region, els.f_sku_topn].forEach(sel => sel.addEventListener("change", renderSku));
 
 function skuMomHtml(d){
@@ -627,8 +659,7 @@ function skuMomHtml(d){
 }
 
 function renderSku(){
-  const data = state.datasets.sku || [];
-  const filtered = data.filter(d => !els.f_sku_region.value || d.grass_region === els.f_sku_region.value);
+  const filtered = skuFilteredBySellerType().filter(d => !els.f_sku_region.value || d.grass_region === els.f_sku_region.value);
   const topNRaw = parseInt(els.f_sku_topn.value, 10);
   const topN = isNaN(topNRaw) ? 30 : topNRaw;
   const shown = topN > 0 ? filtered.slice(0, topN) : filtered;
@@ -652,7 +683,10 @@ function renderSku(){
         <div class="sku-price">${priceText}</div>
         <div class="sku-ado">Rank No.${i + 1}</div>
         <div class="sku-mom">日均销量环比：${skuMomHtml(d)}</div>
-        <span class="badge sku-region">${escapeHtml(d.grass_region)}</span>
+        <div class="sku-badges">
+          <span class="badge sku-region">${escapeHtml(d.grass_region)}</span>
+          <span class="badge sku-sellertype">${escapeHtml(d.seller_type||"")}</span>
+        </div>
       </div>
     </div>`;
   }).join("");
